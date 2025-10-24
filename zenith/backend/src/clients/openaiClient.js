@@ -28,15 +28,6 @@ const rateLimitTimestamps = [];
 const decisionCache = new Map();
 const lastDecisions = new Map();
 
-const ZERO_USAGE = {
-  promptTokens: 0,
-  completionTokens: 0,
-  totalTokens: 0,
-  inputCost: 0,
-  outputCost: 0,
-  totalCost: 0,
-};
-
 const cloneDecision = (value) => JSON.parse(JSON.stringify(value));
 
 const hashPrompt = (prompt) => crypto.createHash('sha1').update(prompt).digest('hex');
@@ -146,41 +137,6 @@ const setCachedDecision = (cacheKey, decision) => {
     value: cloneDecision(decision),
     expiresAt: Date.now() + config.openAi.cacheTtlMs,
   });
-};
-
-const buildOfflineDecision = (symbol, marketContext) => {
-  let parsed;
-  try {
-    parsed = typeof marketContext === 'string' ? JSON.parse(marketContext) : marketContext;
-  } catch (_error) {
-    parsed = {};
-  }
-  const localSignal = parsed?.local_signal ?? parsed?.localSignal ?? {};
-  const bias = ['long', 'short', 'flat'].includes(localSignal.bias) ? localSignal.bias : 'flat';
-  let confidence = Number(localSignal.confidence);
-  if (!Number.isFinite(confidence)) {
-    confidence = bias === 'flat' ? 0.3 : 0.45;
-  }
-  const edgeScore = Number(localSignal.edge_score ?? localSignal.edgeScore ?? 0);
-  const adjustedConfidence = Math.min(
-    0.95,
-    Math.max(confidence, edgeScore > 0.55 ? 0.62 : 0.32)
-  );
-  const reasoningParts = [];
-  if (typeof localSignal.reasoning === 'string' && localSignal.reasoning.trim().length > 0) {
-    reasoningParts.push(localSignal.reasoning.trim());
-  }
-  if (Number.isFinite(edgeScore)) {
-    reasoningParts.push(`Local edge ${Math.round(edgeScore * 100)}%`);
-  }
-  reasoningParts.push('Offline mode · OpenAI call skipped');
-  return {
-    symbol: typeof parsed?.symbol === 'string' && parsed.symbol.length > 0 ? parsed.symbol : symbol,
-    bias,
-    confidence: Number(adjustedConfidence.toFixed(2)),
-    reasoning: reasoningParts.join(' · '),
-    usage: { ...ZERO_USAGE },
-  };
 };
 
 function extractUsage(data) {
@@ -306,13 +262,6 @@ export async function requestStrategy(symbol, marketContext) {
       minMs: MIN_DECISION_INTERVAL_MS,
     }, 'Skipping OpenAI call due to minimum decision interval');
     return cloneDecision(last.decision);
-  }
-
-  if (config.openAi.offlineMode) {
-    const offlineDecision = buildOfflineDecision(symbol, marketContext);
-    setCachedDecision(cacheKey, offlineDecision);
-    rememberDecision(symbol, fingerprint, offlineDecision);
-    return offlineDecision;
   }
 
   await enforceRateLimit();

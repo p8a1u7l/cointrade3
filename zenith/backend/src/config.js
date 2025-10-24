@@ -66,14 +66,13 @@ const ensureValue = (value, name) => {
   return value;
 };
 
-const requestedBinanceOffline = parseBoolean(process.env.BINANCE_OFFLINE_MODE, false);
-const requestedOpenAiOffline = parseBoolean(process.env.OPENAI_OFFLINE_MODE, false);
 const envBinanceKey = optionalEnv('BINANCE_API_KEY');
 const envBinanceSecret = optionalEnv('BINANCE_API_SECRET');
 const envOpenAiKey = optionalEnv('OPENAI_API_KEY');
 
-const binanceOffline = requestedBinanceOffline || !envBinanceKey || !envBinanceSecret;
-const openAiOffline = requestedOpenAiOffline || !envOpenAiKey;
+const binanceApiKey = ensureValue(envBinanceKey, 'BINANCE_API_KEY');
+const binanceApiSecret = ensureValue(envBinanceSecret, 'BINANCE_API_SECRET');
+const openAiApiKey = ensureValue(envOpenAiKey, 'OPENAI_API_KEY');
 const envOpenAiPrimaryModel = optionalEnv('OPENAI_PRIMARY_MODEL');
 const envOpenAiFallbackModel = optionalEnv('OPENAI_FALLBACK_MODEL');
 const openAiFallbackExplicitlySet = Object.prototype.hasOwnProperty.call(
@@ -85,12 +84,9 @@ export const config = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: parseNumber(process.env.PORT, 8080),
   binance: {
-    apiKey: binanceOffline ? envBinanceKey ?? 'offline-key' : ensureValue(envBinanceKey, 'BINANCE_API_KEY'),
-    apiSecret: binanceOffline
-      ? envBinanceSecret ?? 'offline-secret'
-      : ensureValue(envBinanceSecret, 'BINANCE_API_SECRET'),
+    apiKey: binanceApiKey,
+    apiSecret: binanceApiSecret,
     useTestnet: parseBoolean(process.env.BINANCE_USE_TESTNET, true),
-    offlineMode: binanceOffline,
     symbols: parseSymbols(process.env.BINANCE_SYMBOLS),
     symbolDiscovery: {
       enabled: parseBoolean(process.env.SYMBOL_DISCOVERY_ENABLED, true),
@@ -108,8 +104,7 @@ export const config = {
     },
   },
   openAi: {
-    apiKey: openAiOffline ? envOpenAiKey ?? '' : ensureValue(envOpenAiKey, 'OPENAI_API_KEY'),
-    offlineMode: openAiOffline,
+    apiKey: openAiApiKey,
     primaryModel: envOpenAiPrimaryModel ?? 'gpt-5-mini',
     fallbackModel: envOpenAiFallbackModel ?? (openAiFallbackExplicitlySet ? undefined : 'gpt-5-nano'),
     maxOutputTokens: parseNumber(process.env.OPENAI_MAX_OUTPUT_TOKENS, 64),

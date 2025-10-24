@@ -33,13 +33,6 @@ export class TradingEngine extends TypedEventEmitter {
     this.decisionCache = new Map();
     this.loopInFlight = false;
 
-    if (config.binance.offlineMode) {
-      logger.warn('Binance offline mode detected – executions will be simulated.');
-    }
-    if (config.openAi.offlineMode) {
-      logger.warn('OpenAI offline mode enabled – relying on local analytics for decisions.');
-    }
-
     this.stream.on('tick', (tick) => {
       this.latestTicks.set(tick.symbol, tick);
       this.emit('tick', tick);

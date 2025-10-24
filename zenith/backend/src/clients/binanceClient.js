@@ -16,24 +16,6 @@ const BINANCE_HTTP_OPTIONS = {
 
 const RETRYABLE_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 
-const OFFLINE_MODE = config.binance.offlineMode === true;
-
-const OFFLINE_STATE = OFFLINE_MODE
-  ? {
-      prices: new Map(),
-      positions: new Map(),
-      leverage: new Map(),
-      balance: {
-        asset: 'USDT',
-        balance: config.trading.initialBalance,
-        available: config.trading.initialBalance,
-      },
-      orderSequence: 0,
-    }
-  : null;
-
-const OFFLINE_QUOTE_ASSETS = config.binance.symbolDiscovery?.quoteAssets ?? ['USDT'];
-
 const intervalToMs = (interval) => {
   const match = typeof interval === 'string' ? interval.trim().match(/^(\d+)([smhd])$/i) : null;
   if (!match) {
@@ -45,77 +27,11 @@ const intervalToMs = (interval) => {
   return value * unitMs;
 };
 
-const ensureOfflinePrice = (symbol) => {
-  if (!OFFLINE_STATE) return 0;
-  const upper = symbol.toUpperCase();
-  if (!OFFLINE_STATE.prices.has(upper)) {
-    const base = 50 + Math.random() * 200;
-    OFFLINE_STATE.prices.set(upper, base);
-  }
-  return OFFLINE_STATE.prices.get(upper);
-};
-
-const nextOfflinePrice = (symbol) => {
-  if (!OFFLINE_STATE) return 0;
-  const upper = symbol.toUpperCase();
-  const current = ensureOfflinePrice(upper);
-  const drift = (Math.random() - 0.5) * Math.max(current * 0.0025, 0.05);
-  const next = Math.max(0.0001, current + drift);
-  OFFLINE_STATE.prices.set(upper, next);
-  return next;
-};
-
-const offlineQuoteAsset = (symbol) => {
-  const upper = symbol.toUpperCase();
-  for (const asset of OFFLINE_QUOTE_ASSETS) {
-    if (upper.endsWith(asset)) {
-      return asset;
-    }
-  }
-  return OFFLINE_QUOTE_ASSETS[0] ?? 'USDT';
-};
-
-const generateOfflineCandles = (symbol, interval, limit) => {
-  if (!OFFLINE_STATE) return [];
-  const intervalMs = intervalToMs(interval);
-  const now = Date.now();
-  const startTime = now - limit * intervalMs;
-  const candles = [];
-  let previousClose = ensureOfflinePrice(symbol);
-  for (let i = 0; i < limit; i += 1) {
-    const openTime = startTime + i * intervalMs;
-    const closeTime = openTime + intervalMs;
-    const base = previousClose;
-    const delta = (Math.random() - 0.5) * Math.max(base * 0.002, 0.05);
-    const close = Math.max(0.0001, base + delta);
-    const high = Math.max(base, close) * (1 + Math.random() * 0.0015);
-    const low = Math.min(base, close) * (1 - Math.random() * 0.0015);
-    const volume = Math.max(5, (base + close) / 2 * (0.15 + Math.random()));
-    candles.push({
-      openTime: Math.floor(openTime),
-      closeTime: Math.floor(closeTime),
-      open: base,
-      high,
-      low,
-      close,
-      volume,
-    });
-    previousClose = close;
-    OFFLINE_STATE.prices.set(symbol.toUpperCase(), close);
-  }
-  return candles;
-};
-
-if (OFFLINE_MODE) {
-  logger.warn('Binance offline mode enabled – market data and executions will be simulated.');
-}
-
 export class BinanceRealtimeFeed extends TypedEventEmitter {
   constructor() {
     super();
     this.pollTimer = undefined;
     this.symbols = [];
-    this.offline = OFFLINE_MODE;
   }
 
   start(symbols) {
@@ -141,19 +57,6 @@ export class BinanceRealtimeFeed extends TypedEventEmitter {
 
   async _pollPrices(symbols) {
     if (!Array.isArray(symbols) || symbols.length === 0) {
-      return;
-    }
-
-    if (this.offline && OFFLINE_STATE) {
-      const now = Date.now();
-      for (const symbol of symbols) {
-        const price = nextOfflinePrice(symbol);
-        this.emit('tick', {
-          symbol,
-          price,
-          eventTime: now,
-        });
-      }
       return;
     }
 
@@ -193,18 +96,6 @@ export class BinanceRealtimeFeed extends TypedEventEmitter {
   }
 
   async _pollBulkPrices(symbols) {
-    if (this.offline && OFFLINE_STATE) {
-      const now = Date.now();
-      for (const symbol of symbols) {
-        const price = nextOfflinePrice(symbol);
-        this.emit('tick', {
-          symbol,
-          price,
-          eventTime: now,
-        });
-      }
-      return;
-    }
     try {
       const response = await fetchWithRetry(`${REST_BASE_URL}/fapi/v1/ticker/price`, {
         timeoutMs: BINANCE_HTTP_OPTIONS.timeoutMs,
@@ -241,15 +132,11 @@ export class BinanceRealtimeFeed extends TypedEventEmitter {
 export class BinanceClient {
   constructor() {
     this.baseUrl = REST_BASE_URL;
-    this.offline = OFFLINE_MODE;
     this.httpOptions = BINANCE_HTTP_OPTIONS;
     this.retryOn = RETRYABLE_STATUS;
   }
 
   async fetchKlines(symbol, interval = '1m', limit = 120) {
-    if (this.offline && OFFLINE_STATE) {
-      return generateOfflineCandles(symbol, interval, Math.max(1, Math.min(limit, 500)));
-    }
     const params = new URLSearchParams({
       symbol,
       interval,
@@ -289,9 +176,6 @@ export class BinanceClient {
   }
 
   async request(method, path, params = {}) {
-    if (this.offline) {
-      throw new Error('Binance request is unavailable in offline mode');
-    }
     const query = this.signParams(params);
     const url = `${this.baseUrl}${path}?${query}`;
     const response = await fetchWithRetry(url, {
@@ -309,16 +193,6 @@ export class BinanceClient {
   }
 
   async fetchAccountBalance() {
-    if (this.offline && OFFLINE_STATE) {
-      const { asset, balance, available } = OFFLINE_STATE.balance;
-      return [
-        {
-          asset,
-          balance,
-          available,
-        },
-      ];
-    }
     try {
       const data = await this.request('GET', '/fapi/v2/account');
       return (data.assets ?? []).map((asset) => ({
@@ -333,14 +207,6 @@ export class BinanceClient {
   }
 
   async fetchPositions() {
-    if (this.offline && OFFLINE_STATE) {
-      return Array.from(OFFLINE_STATE.positions.values()).map((position) => ({
-        symbol: position.symbol,
-        positionAmt: position.positionAmt,
-        entryPrice: position.entryPrice,
-        unrealizedProfit: 0,
-      }));
-    }
     try {
       const data = await this.request('GET', '/fapi/v2/positionRisk');
       return (data ?? []).map((position) => ({
@@ -356,10 +222,6 @@ export class BinanceClient {
   }
 
   async setLeverage(symbol, leverage) {
-    if (this.offline && OFFLINE_STATE) {
-      OFFLINE_STATE.leverage.set(symbol.toUpperCase(), leverage);
-      return;
-    }
     try {
       await this.request('POST', '/fapi/v1/leverage', { symbol, leverage });
     } catch (error) {
@@ -369,40 +231,6 @@ export class BinanceClient {
   }
 
   async placeMarketOrder(symbol, side, quantity) {
-    if (this.offline && OFFLINE_STATE) {
-      const upper = symbol.toUpperCase();
-      const price = nextOfflinePrice(upper);
-      const executedQty = Number(quantity);
-      const leverage = OFFLINE_STATE.leverage.get(upper) ?? 1;
-      const direction = side === 'BUY' ? 1 : -1;
-      const previous = OFFLINE_STATE.positions.get(upper) ?? {
-        symbol: upper,
-        positionAmt: 0,
-        entryPrice: price,
-      };
-      const nextAmt = Number((previous.positionAmt + direction * executedQty).toFixed(4));
-      if (Math.abs(nextAmt) < 1e-6) {
-        OFFLINE_STATE.positions.delete(upper);
-      } else {
-        OFFLINE_STATE.positions.set(upper, {
-          symbol: upper,
-          positionAmt: nextAmt,
-          entryPrice: price,
-        });
-      }
-      const notional = price * executedQty;
-      const marginImpact = notional / Math.max(leverage, 1);
-      OFFLINE_STATE.balance.available = Math.max(
-        0,
-        OFFLINE_STATE.balance.available - marginImpact * 0.01
-      );
-      return {
-        orderId: crypto.randomUUID ? crypto.randomUUID() : String(OFFLINE_STATE.orderSequence += 1),
-        status: 'FILLED',
-        avgPrice: price,
-        executedQty,
-      };
-    }
     try {
       const data = await this.request('POST', '/fapi/v1/order', {
         symbol,
@@ -430,38 +258,6 @@ export class BinanceClient {
     const quoteAssets = Array.isArray(options.quoteAssets) && options.quoteAssets.length > 0
       ? options.quoteAssets.map((asset) => asset.toUpperCase())
       : ['USDT'];
-
-    if (this.offline && OFFLINE_STATE) {
-      const symbols = new Set([
-        ...config.binance.symbols,
-        ...Array.from(OFFLINE_STATE.prices.keys()),
-      ]);
-      const ranked = [];
-      for (const symbol of symbols) {
-        if (!symbol) continue;
-        const quoteAsset = offlineQuoteAsset(symbol);
-        if (!quoteAssets.includes(quoteAsset)) continue;
-        const lastPrice = nextOfflinePrice(symbol);
-        const priceChangePercent = (Math.random() - 0.5) * 10;
-        const quoteVolume = Math.max(minQuoteVolume, 1_000_000 + Math.random() * 5_000_000);
-        const baseVolume = quoteVolume / Math.max(lastPrice, 1);
-        const liquidityBoost = Math.log10(Math.max(quoteVolume, 1) + 10);
-        const score = Math.abs(priceChangePercent) * liquidityBoost;
-        ranked.push({
-          symbol,
-          quoteAsset,
-          priceChangePercent,
-          lastPrice,
-          quoteVolume,
-          baseVolume,
-          score,
-          direction: priceChangePercent >= 0 ? 'up' : 'down',
-        });
-      }
-      ranked.sort((a, b) => b.score - a.score);
-      return ranked.slice(0, limit);
-    }
-
     const response = await fetchWithRetry(`${this.baseUrl}/fapi/v1/ticker/24hr`, {
       timeoutMs: this.httpOptions.timeoutMs,
       retries: this.httpOptions.retries,

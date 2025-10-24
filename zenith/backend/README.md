@@ -9,7 +9,6 @@ Zenith Trader Suite의 핵심인 순수 Node.js 서비스로, 바이낸스 선�
 - 시그널·체결·잔고 스냅샷을 추적하는 인메모리 분석 스토어
 - GPT-5 Mini 프롬프트 빌더를 통해 반환되는 JSON 전략을 그대로 실행하며, 필요 시 GPT-5 Nano로 자동 폴백하여 토큰 비용을 절감하고 LLM 오류는 즉시 실패로 보고
 - 5분 모멘텀·RSI 기반 로컬 신호로 고신뢰 상황에서 OpenAI 호출을 생략해 토큰 소비를 절감
-- 오프라인 시뮬레이션 모드로 실거래 API 없이 전략 검증 및 대시보드 통합 테스트 수행 가능
 - OpenAI 호출에 캐시·레이트리미터·타임아웃을 적용해 비용과 응답 지연을 최소화
 - 시장 컨텍스트 지문(fingerprint)과 최소 호출 간격을 적용하여 동일/근접 상황에서는 이전 결정을 재사용해 호출 수를 줄임
 - 바이낸스 REST 요청에 타임아웃/재시도 및 24시간 모멘텀 스캐너 시뮬레이션을 적용해 회복력을 확보
@@ -22,7 +21,7 @@ Zenith Trader Suite의 핵심인 순수 Node.js 서비스로, 바이낸스 선�
 - `npm run test` – 오케스트레이터를 임시로 부팅해 핵심 REST 엔드포인트를 점검하는 셀프 테스트
 
 ## 환경 변수
-필수 항목은 저장소에 포함된 `.env.example` 파일을 참고하세요. 모든 자격 증명 칸은 비워져 있으므로, 실제 바이낸스·오픈AI 키를 직접 채워 넣어야 합니다. 실거래 API 없이 테스트하려면 `BINANCE_OFFLINE_MODE=true`, `OPENAI_OFFLINE_MODE=true`로 설정해 시뮬레이션 모드를 활성화할 수 있으며, 키를 비워둔 경우 자동으로 오프라인 모드가 적용됩니다.
+필수 항목은 저장소에 포함된 `.env.example` 파일을 참고하세요. 모든 자격 증명 칸은 비워져 있으므로, 실제 바이낸스·오픈AI 키를 직접 채워 넣어야 합니다. 오케스트레이터는 항상 외부 API에 연결하므로, 테스트넷/실거래 여부와 관계없이 유효한 자격 증명이 필요합니다.
 
 동적 심볼 탐색을 제어하는 주요 옵션은 다음과 같습니다.
 
@@ -38,7 +37,6 @@ Zenith Trader Suite의 핵심인 순수 Node.js 서비스로, 바이낸스 선�
 | `BINANCE_HTTP_TIMEOUT_MS` | `12000` | 바이낸스 REST 호출 타임아웃(ms) |
 | `BINANCE_HTTP_MAX_RETRIES` | `3` | 네트워크 오류 및 429 응답 시 재시도 횟수 |
 | `BINANCE_HTTP_RETRY_DELAY_MS` | `400` | 재시도 간 대기 시간(ms) |
-| `BINANCE_OFFLINE_MODE` | `false` | 바이낸스 API 대신 내장 시뮬레이션 사용 |
 | `OPENAI_PRIMARY_MODEL` | `gpt-5-mini` | 기본 OpenAI 모델 |
 | `OPENAI_FALLBACK_MODEL` | `gpt-5-nano` | 기본 모델 실패 시 폴백 모델 (공백 시 비활성화) |
 | `OPENAI_MAX_OUTPUT_TOKENS` | `64` | 단일 응답 토큰 상한 |
@@ -50,7 +48,6 @@ Zenith Trader Suite의 핵심인 순수 Node.js 서비스로, 바이낸스 선�
 | `OPENAI_HTTP_TIMEOUT_MS` | `20000` | OpenAI 응답 타임아웃(ms) |
 | `OPENAI_HTTP_MAX_RETRIES` | `3` | OpenAI 호출 재시도 횟수 |
 | `OPENAI_HTTP_RETRY_DELAY_MS` | `750` | OpenAI 재시도 간 대기(ms) |
-| `OPENAI_OFFLINE_MODE` | `false` | OpenAI 대신 로컬 신호 기반 의사결정 사용 |
 
 ## REST 엔드포인트
 | Method | Path                  | 설명                                       |
